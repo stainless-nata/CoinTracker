@@ -7,14 +7,16 @@ import dotenv  from "dotenv"
 import { Client, Collection, GatewayIntentBits, Events } from "discord.js";
 import fs from "fs";
 
-import address from './config/config.js'
+import { address, routers } from './config/config.js'
 import notify from './utils/notify.js'
 import save from './utils/save.js'
-var mint_address = JSON.parse(fs.readFileSync("./config/mint-address.json", "utf-8"));
+import { getTokenAddress } from './utils/alchemy-api.js'
+
+var buy_address = JSON.parse(fs.readFileSync("./config/buy-address.json", "utf-8"));
+var sell_address = JSON.parse(fs.readFileSync("./config/sell-address.json", "utf-8"));
 
 dotenv.config()
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
-
 
 ////////////////////// Discord ///////////////////////////////
 
@@ -23,30 +25,57 @@ client.login(process.env.DISCORD_BOT_TOKEN);
 
 client.on("ready", () => {
   console.log("Bot Ready!");
-  notify(client, process.env.MINT_CHANNEL_ID, "ERC20 Tracker Started...")
+  notify(client, process.env.BUY_CHANNEL_ID, "ERC20 Tracker Started...")
+  notify(client, process.env.SELL_CHANNEL_ID, "ERC20 Tracker Started...")
 });
 
 async function handleTransactionEvent(transaction) {
   const tx = transaction.transaction
-  console.log(tx)
+  console.log(tx.hash)
 
-  if(!address.includes(tx.from.toLowerCase())) {
+  const fromAddress = tx.from.toLowerCase()
+  const toAddress = tx.to.toLowerCase()
+
+  if(!address.includes(fromAddress)) {
     console.log("Filter: Not in Address list")
     return;
   }
-
-  notify(client, process.env.MINT_CHANNEL_ID, tx.hash)
-
-  const toAddress = tx.to.toLowerCase()
-  if(mint_address[toAddress] == undefined) mint_address[toAddress] = []
-  mint_address[toAddress].push(toAddress)
-  const len = mint_address[toAddress].length
-  if(len == 3 || len == 5 || len == 7) {
-    const msg = `${len} wallets interacted [${toAddress}]`
-    notify(client, process.env.MINT_CHANNEL_ID, msg)
+  if(!routers.includes(toAddress)) {
+    console.log("Filter: Not Swap transaction")
+    return;
   }
 
-  save("mint-address", mint_address)
+  let res = await getTokenAddress(tx.hash, fromAddress)
+  if(res == null) {
+    console.log("Filter: No ERC20 transfers")
+    return;
+  }
+  console.log(tx)
+
+  const tokenAddress = res.token;
+  let len;
+  
+  if(res.type == "BUY") {
+    if(buy_address[tokenAddress] == undefined) buy_address[tokenAddress] = []
+    buy_address[tokenAddress].push(fromAddress)
+    len = buy_address[tokenAddress].length
+    save("buy-address", buy_address);
+  } else {
+    if(sell_address[tokenAddress] == undefined) sell_address[tokenAddress] = []
+    sell_address[tokenAddress].push(fromAddress)
+    len = sell_address[tokenAddress].length
+    save("sell-address", sell_address);
+  }
+
+  let alertType = "None";
+  if (len == 2) alertType = "<@&1025482820598112369>";
+  if (len == 5) alertType = "<@&1025482935081644116>";
+  if (len == 10) alertType = "<@&1025482908141637702>";
+  if (len == 25) alertType = "<@&1025482870174793738>";
+  if(alertType !== "None") {
+    const msg = `${alertType}: ${len} wallets ${res.type == "BUY" ? "bought" : "sold"} [${tokenAddress}]`
+    notify(client, res.type == "BUY" ? process.env.BUY_CHANNEL_ID : process.env.SELL_CHANNEL_ID, msg)
+  }
 }
 
 const invokeConfiguration = (addr) => {
