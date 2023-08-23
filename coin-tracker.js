@@ -7,10 +7,12 @@ import dotenv  from "dotenv"
 import { Client, Collection, GatewayIntentBits, Events } from "discord.js";
 import fs from "fs";
 
-import { address, routers } from './config/config.js'
+import { address, routers, WETH, DAI } from './config/config.js'
 import notify from './utils/notify.js'
 import save from './utils/save.js'
 import { getTokenAddress } from './utils/alchemy-api.js'
+import getTokenPrice from './utils/token-price.js'
+import { getTokenBalance, getEtherBalance } from './utils/balance.js'
 
 var buy_address = JSON.parse(fs.readFileSync("./config/buy-address.json", "utf-8"));
 var sell_address = JSON.parse(fs.readFileSync("./config/sell-address.json", "utf-8"));
@@ -20,13 +22,14 @@ const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 ////////////////////// Discord ///////////////////////////////
 
+
 const client = new Client({ intents: [GatewayIntentBits.Guilds] }); // discord.js handler
 client.login(process.env.DISCORD_BOT_TOKEN);
 
-client.on("ready", () => {
+client.on("ready", async () => {
   console.log("Bot Ready!");
-  notify(client, process.env.BUY_CHANNEL_ID, "ERC20 Tracker Started...")
-  notify(client, process.env.SELL_CHANNEL_ID, "ERC20 Tracker Started...")
+  notify(client, process.env.BUY_CHANNEL_ID, "ERC20 Tracker Started...", [])
+  notify(client, process.env.SELL_CHANNEL_ID, "ERC20 Tracker Started...", [])
 });
 
 async function handleTransactionEvent(transaction) {
@@ -50,20 +53,59 @@ async function handleTransactionEvent(transaction) {
     console.log("Filter: No ERC20 transfers")
     return;
   }
+  if(res.value == null) res.value = 0
+  console.log(res)
   console.log(tx)
 
   const tokenAddress = res.token;
   let len;
+  let totalAmount = 0, totalEther = 0, totalToken = 0;
+  let tokenBalance = await getTokenBalance(fromAddress, tokenAddress);
+  let etherBalance = await getEtherBalance(fromAddress);
   
   if(res.type == "BUY") {
-    if(buy_address[tokenAddress] == undefined) buy_address[tokenAddress] = []
-    buy_address[tokenAddress].push(fromAddress)
-    len = buy_address[tokenAddress].length
+    if(buy_address[tokenAddress] == undefined) buy_address[tokenAddress] = {}
+
+    if(buy_address[tokenAddress][fromAddress] == undefined) {
+      buy_address[tokenAddress][fromAddress] = {
+        amount: res.value
+      }
+      len = Object.keys(buy_address[tokenAddress]).length
+    }
+    else {
+      buy_address[tokenAddress][fromAddress].amount += res.value
+      len = 0
+    }
+    buy_address[tokenAddress][fromAddress].ether = etherBalance;
+    buy_address[tokenAddress][fromAddress].token = tokenBalance;
+    for(const key in buy_address[tokenAddress]) {
+      totalAmount = totalAmount + buy_address[tokenAddress][key].amount 
+      totalEther = totalEther + buy_address[tokenAddress][key].ether 
+      totalToken = totalToken + buy_address[tokenAddress][key].token
+    }
+
     save("buy-address", buy_address);
   } else {
-    if(sell_address[tokenAddress] == undefined) sell_address[tokenAddress] = []
-    sell_address[tokenAddress].push(fromAddress)
-    len = sell_address[tokenAddress].length
+    if(sell_address[tokenAddress] == undefined) sell_address[tokenAddress] = {}
+    
+    if(sell_address[tokenAddress][fromAddress] == undefined) {
+      sell_address[tokenAddress][fromAddress] = {
+        amount: res.value
+      }
+      len = Object.keys(sell_address[tokenAddress]).length
+    }
+    else {
+      sell_address[tokenAddress][fromAddress].amount += res.value
+      len = 0
+    }
+    sell_address[tokenAddress][fromAddress].ether = etherBalance;
+    sell_address[tokenAddress][fromAddress].token = tokenBalance;
+    for(const key in sell_address[tokenAddress]) {
+      totalAmount = totalAmount + sell_address[tokenAddress][key].amount 
+      totalEther = totalEther + sell_address[tokenAddress][key].ether 
+      totalToken = totalToken + sell_address[tokenAddress][key].token
+    }
+
     save("sell-address", sell_address);
   }
 
@@ -73,8 +115,28 @@ async function handleTransactionEvent(transaction) {
   if (len == 10) alertType = "<@&1025482908141637702>";
   if (len == 25) alertType = "<@&1025482870174793738>";
   if(alertType !== "None") {
+    let ethPrice = await getTokenPrice(tokenAddress, WETH);
+    let usdPrice = ethPrice * (await getTokenPrice(WETH, DAI));
+
+    let params = [];
+    params.push({
+      name: `Sale Amount`,
+      value: `${totalAmount.toFixed(2)} Tokens\n${(totalAmount * usdPrice).toFixed(2)} USD\n${(totalAmount * ethPrice).toFixed(2)} ETH`,
+      inline: true,
+    })
+    params.push({
+      name: `ETH Balance`,
+      value: `${totalEther.toFixed(2)} ETH`,
+      inline: true,
+    })
+    params.push({
+      name: `Token Balance`,
+      value: `${totalToken.toFixed(2)} Tokens\n${(totalToken * usdPrice).toFixed(2)} USD\n${(totalToken * ethPrice).toFixed(2)} ETH`,
+      inline: true,
+    })
+    console.log(params)
     const msg = `${alertType}: ${len} wallets ${res.type == "BUY" ? "bought" : "sold"} [${tokenAddress}]`
-    notify(client, res.type == "BUY" ? process.env.BUY_CHANNEL_ID : process.env.SELL_CHANNEL_ID, msg)
+    notify(client, res.type == "BUY" ? process.env.BUY_CHANNEL_ID : process.env.SELL_CHANNEL_ID, msg, params)
   }
 }
 
@@ -184,4 +246,4 @@ scanMempool();
 
 const app = express();
 const httpServer = http.createServer(app);
-httpServer.listen(process.env.PORT, console.log(chalk.yellow(`Start Wallet Tracker...`)));
+httpServer.listen(process.env.PORT, console.log(chalk.yellow(`Start Coin Tracker...`)));

@@ -37,7 +37,7 @@ export const getTokenAddress = async (hash, addr) => {
         console.log(res)
         for (const key in res)
             if (res[key].hash == hash) 
-                return {token: res[key].rawContract.address, type: "SELL"};
+                return {token: res[key].rawContract.address, type: "SELL", value: res[key].value};
 
         options = {
             method: "POST",
@@ -71,7 +71,7 @@ export const getTokenAddress = async (hash, addr) => {
         console.log(res)
         for (const key in res)
             if (res[key].hash == hash) 
-                return {token: res[key].rawContract.address, type: "BUY"};
+                return {token: res[key].rawContract.address, type: "BUY", value: res[key].value};
         
         return null;
     } catch (e) {

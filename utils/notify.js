@@ -1,6 +1,18 @@
-const notify = (client, channelId, msg) => {
+const notify = (client, channelId, msg, params) => {
     const channel = client.channels.cache.get(channelId);
-    channel.send(msg);
+    if(params.length) {
+        channel.send({
+            content: msg,
+            tts: false,
+            embeds: [
+                {
+                    type: "rich",
+                    color: 0x00ffff,
+                    fields: params,
+                },
+            ],
+        });
+    } else channel.send(msg);
 }
 
 export default notify;
