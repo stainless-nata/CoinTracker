@@ -53,9 +53,12 @@ async function handleTransactionEvent(transaction) {
     console.log("Filter: No ERC20 transfers")
     return;
   }
-  if(res.value == null) res.value = 0
+  if(res.value == null) {
+    console.log("Filter: Invalid Token")
+    return;
+  }
   console.log(res)
-  console.log(tx)
+  console.log(tx.hash)
 
   const tokenAddress = res.token;
   let len;
@@ -120,7 +123,7 @@ async function handleTransactionEvent(transaction) {
 
     let params = [];
     params.push({
-      name: `Sale Amount`,
+      name: `Tokens Purchased`,
       value: `${totalAmount.toFixed(2)} Tokens\n${(totalAmount * usdPrice).toFixed(2)} USD\n${(totalAmount * ethPrice).toFixed(2)} ETH`,
       inline: true,
     })

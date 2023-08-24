@@ -37,11 +37,11 @@ const getTokenPrice = async (fromAddress, toAddress) => {
         ], fromAddress)
         let decimal = parseInt(await token.methods.decimals().call());
 
-        let price = (await router.methods.getAmountsOut(1e9, [
+        let price = (await router.methods.getAmountsOut(1e15, [
             fromAddress,
             toAddress,
         ]).call())[1];
-        price = parseInt(price) / 1e9
+        price = parseInt(price) / 1e15
 
         price = price / (10 ** (18 - decimal));
 
